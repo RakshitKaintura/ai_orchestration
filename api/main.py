@@ -266,15 +266,67 @@ async def get_trace(job_id: str) -> dict[str, Any]:
 )
 async def get_latest_eval() -> dict[str, Any]:
     """
-    Return the latest evaluation run summary.
-
-    **Implementation note**: DB query implemented in Phase 7.
+    Return the latest evaluation run summary with per-category and per-dimension stats.
     """
-    # TODO (Phase 7): query eval_runs table, return latest
+    try:
+        async with get_db_session() as session:
+            row = await session.execute(
+                "SELECT id, triggered_by, cases_count, status, summary, "
+                "created_at, completed_at FROM eval_runs "
+                "WHERE status = 'complete' ORDER BY completed_at DESC LIMIT 1"
+            )
+            run = row.fetchone() if hasattr(row, 'fetchone') else None
+
+            if not run:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ErrorResponse(
+                        error_code="NO_EVAL_RUNS",
+                        message="No completed evaluation runs found. Run 'make eval' to start.",
+                    ).model_dump(),
+                )
+
+            run_dict = dict(run)
+            run_id = str(run_dict["id"])
+
+            # Fetch per-case results
+            cases_row = await session.execute(
+                "SELECT case_id, category, query, final_answer, "
+                "correctness, citations, contradictions, tool_efficiency, "
+                "budget_compliance, critique_agreement, weighted_total "
+                "FROM eval_case_results WHERE run_id = $1 ORDER BY weighted_total ASC",
+                run_id,
+            )
+            cases = [dict(r) for r in (cases_row.fetchall() if hasattr(cases_row, 'fetchall') else [])]
+
+            # Fetch pending rewrites from this run
+            rewrites_row = await session.execute(
+                "SELECT id, agent_id, dimension, status, confidence, created_at "
+                "FROM prompt_rewrites WHERE run_id = $1",
+                run_id,
+            )
+            rewrites = [dict(r) for r in (rewrites_row.fetchall() if hasattr(rewrites_row, 'fetchall') else [])]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("eval_latest_db_failed", extra={"error": str(e)})
+        return {
+            "error": "Database query failed",
+            "message": str(e),
+            "hint": "Run 'make eval' to execute the evaluation harness",
+        }
+
     return {
-        "status": "stub",
-        "message": "Eval run query implemented in Phase 7.",
-        "latest_run": None,
+        "run_id": run_id,
+        "triggered_by": run_dict.get("triggered_by"),
+        "cases_count": run_dict.get("cases_count"),
+        "status": run_dict.get("status"),
+        "created_at": str(run_dict.get("created_at", "")),
+        "completed_at": str(run_dict.get("completed_at", "")),
+        "summary": run_dict.get("summary") or {},
+        "case_results": cases,
+        "pending_rewrites": rewrites,
     }
 
 
@@ -303,14 +355,12 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
 
     On approval:
     - The rewrite status is set to 'approved'
-    - A targeted re-eval is immediately enqueued (only failed cases)
-    - The performance delta is stored once the re-eval completes
+    - The new prompt is written to agent_prompts (trigger deactivates old)
+    - A targeted re-eval is immediately enqueued (only previously failed cases)
 
     On rejection:
     - The rewrite status is set to 'rejected'
     - No further action is taken
-
-    **Implementation note**: Implemented in Phase 8.
     """
     try:
         uuid.UUID(rewrite_id)
@@ -323,13 +373,101 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
             ).model_dump(),
         )
 
-    # TODO (Phase 8): update prompt_rewrites table, trigger re-eval if approved
+    try:
+        async with get_db_session() as session:
+            # Fetch the rewrite
+            row = await session.execute(
+                "SELECT id, run_id, agent_id, dimension, status FROM prompt_rewrites WHERE id = $1",
+                rewrite_id,
+            )
+            rw = row.fetchone() if hasattr(row, 'fetchone') else None
+
+            if not rw:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ErrorResponse(
+                        error_code="REWRITE_NOT_FOUND",
+                        message=f"Rewrite '{rewrite_id}' not found.",
+                        job_id=rewrite_id,
+                    ).model_dump(),
+                )
+
+            rw_dict = dict(rw)
+            if rw_dict["status"] != "pending":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=ErrorResponse(
+                        error_code="ALREADY_REVIEWED",
+                        message=f"Rewrite already has status '{rw_dict['status']}'.",
+                        job_id=rewrite_id,
+                    ).model_dump(),
+                )
+
+            # Update status
+            new_status = request.decision  # 'approved' or 'rejected'
+            await session.execute(
+                "UPDATE prompt_rewrites SET status = $2 WHERE id = $1",
+                rewrite_id, new_status,
+            )
+
+            re_eval_triggered = False
+            re_eval_run_id = None
+
+            if new_status == "approved":
+                # Apply the new prompt to agent_prompts
+                from api.agents.meta import apply_approved_rewrite
+                await apply_approved_rewrite(session, rewrite_id)
+
+                # Find previously failed cases from the originating eval run
+                run_id = rw_dict.get("run_id")
+                failed_cases_row = await session.execute(
+                    "SELECT case_id FROM eval_case_results "
+                    "WHERE run_id = $1 AND weighted_total < 0.6 "
+                    "ORDER BY weighted_total ASC",
+                    run_id,
+                )
+                failed_cases = [
+                    r["case_id"]
+                    for r in (failed_cases_row.fetchall() if hasattr(failed_cases_row, 'fetchall') else [])
+                ]
+
+                if failed_cases:
+                    # Enqueue targeted re-eval via Celery
+                    from worker.tasks import run_reeval_task
+                    task = run_reeval_task.apply_async(
+                        args=[rewrite_id, failed_cases],
+                        queue="eval",
+                    )
+                    re_eval_triggered = True
+                    re_eval_run_id = task.id
+                    logger.info("reeval_enqueued", extra={
+                        "rewrite_id": rewrite_id,
+                        "cases_count": len(failed_cases),
+                        "task_id": task.id,
+                    })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("review_rewrite_failed", extra={"error": str(e)})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ErrorResponse(
+                error_code="REVIEW_FAILED",
+                message=f"Failed to process review: {e}",
+            ).model_dump(),
+        )
+
     return {
         "rewrite_id": rewrite_id,
-        "status": "stub",
-        "decision": request.decision,
-        "re_eval_triggered": False,
-        "message": "Approval flow implemented in Phase 8.",
+        "status": new_status,
+        "re_eval_triggered": re_eval_triggered,
+        "re_eval_task_id": re_eval_run_id,
+        "message": (
+            f"Rewrite {new_status}. Re-eval enqueued on failed cases."
+            if re_eval_triggered
+            else f"Rewrite {new_status}. No re-eval triggered."
+        ),
     }
 
 
@@ -352,14 +490,85 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
 )
 async def trigger_re_eval(request: ReRunRequest) -> dict[str, Any]:
     """
-    Trigger a targeted re-evaluation using approved prompt rewrites.
-
-    **Implementation note**: Implemented in Phase 8.
+    Trigger a targeted re-eval using the latest approved prompt rewrite.
     """
-    # TODO (Phase 8): enqueue Celery eval task with filtered case list
-    return {
-        "status": "stub",
-        "rewrite_id": request.rewrite_id,
-        "cases_count": 0,
-        "message": "Re-eval trigger implemented in Phase 8.",
-    }
+    try:
+        async with get_db_session() as session:
+            # Resolve the rewrite_id — use explicit or find latest approved
+            rewrite_id = request.rewrite_id
+
+            if not rewrite_id:
+                row = await session.execute(
+                    "SELECT id FROM prompt_rewrites WHERE status = 'approved' "
+                    "ORDER BY created_at DESC LIMIT 1"
+                )
+                rw = row.fetchone() if hasattr(row, 'fetchone') else None
+                if not rw:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=ErrorResponse(
+                            error_code="NO_APPROVED_REWRITE",
+                            message="No approved rewrites found. Approve a rewrite first.",
+                        ).model_dump(),
+                    )
+                rewrite_id = str(rw["id"])
+
+            # Find the associated run's failed cases
+            row = await session.execute(
+                "SELECT run_id FROM prompt_rewrites WHERE id = $1 AND status = 'approved'",
+                rewrite_id,
+            )
+            rw = row.fetchone() if hasattr(row, 'fetchone') else None
+            if not rw:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=ErrorResponse(
+                        error_code="REWRITE_NOT_FOUND",
+                        message=f"Approved rewrite '{rewrite_id}' not found.",
+                    ).model_dump(),
+                )
+
+            failed_cases_row = await session.execute(
+                "SELECT case_id FROM eval_case_results "
+                "WHERE run_id = $1 AND weighted_total < 0.6",
+                str(rw["run_id"]),
+            )
+            failed_cases = [
+                r["case_id"]
+                for r in (failed_cases_row.fetchall() if hasattr(failed_cases_row, 'fetchall') else [])
+            ]
+
+        if not failed_cases:
+            return {
+                "status": "skipped",
+                "rewrite_id": rewrite_id,
+                "cases_count": 0,
+                "message": "No failed cases found — nothing to re-evaluate.",
+            }
+
+        from worker.tasks import run_reeval_task
+        task = run_reeval_task.apply_async(
+            args=[rewrite_id, failed_cases],
+            queue="eval",
+        )
+
+        return {
+            "status": "queued",
+            "run_id": task.id,
+            "rewrite_id": rewrite_id,
+            "cases_count": len(failed_cases),
+            "case_ids": failed_cases,
+            "message": f"Re-eval queued for {len(failed_cases)} failed cases.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("trigger_reeval_failed", extra={"error": str(e)})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ErrorResponse(
+                error_code="REEVAL_FAILED",
+                message=f"Failed to trigger re-eval: {e}",
+            ).model_dump(),
+        )
