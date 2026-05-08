@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.egg-info/
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.docker/
+
+# Secrets & credentials (never commit these)
+*.pem
+*.key
+secrets/
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+logs/*.log
+logs/*.json
+*.log
+
+# ChromaDB persistent storage
+chroma_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.pyc
+node_modules/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
