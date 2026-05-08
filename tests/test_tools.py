@@ -255,6 +255,7 @@ class TestWebSearch:
         from api.tools.web_search import web_search
         result = await web_search({"query": "python", "limit": 2})
         assert result.success is True
+        assert result.data is not None
         assert len(result.data) <= 2
 
     @pytest.mark.asyncio
@@ -262,6 +263,7 @@ class TestWebSearch:
         from api.tools.web_search import web_search
         result = await web_search({"query": "fine-tuning LLM"})
         assert result.success is True
+        assert result.data is not None
         for item in result.data:
             assert "url" in item
             assert "title" in item
@@ -286,6 +288,7 @@ class TestCodeSandbox:
         from api.tools.code_sandbox import code_sandbox
         result = await code_sandbox({"code": "print(17 * 23)"})
         assert result.success is True
+        assert result.data is not None
         assert "391" in result.data["stdout"]
         assert result.data["exit_code"] == 0
 
@@ -301,6 +304,7 @@ class TestCodeSandbox:
         from api.tools.code_sandbox import code_sandbox
         result = await code_sandbox({"code": "def broken(:"})
         assert result.success is True  # tool succeeds; exit_code != 0
+        assert result.data is not None
         assert result.data["exit_code"] != 0
         assert len(result.data["stderr"]) > 0
 
@@ -359,4 +363,5 @@ class TestToolResultFactories:
         r = ToolResult.malformed(source="test", message="bad input")
         assert r.success is False
         assert r.error_type == "malformed"
+        assert r.error_message is not None
         assert "bad input" in r.error_message

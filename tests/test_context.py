@@ -51,7 +51,7 @@ class TestSubTask:
 
     def test_invalid_task_type_raises(self):
         with pytest.raises(Exception):
-            SubTask(description="x", task_type="invalid_type")
+            SubTask(description="x", task_type="invalid_type")  # type: ignore[arg-type]
 
 
 # ─── SharedContext tests ──────────────────────────────────────────────────────

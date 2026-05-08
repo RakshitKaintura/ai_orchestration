@@ -144,15 +144,17 @@ async def check_chromadb():
 @check("DAG validator rejects cycles")
 async def check_dag_validator():
     from api.agents.decomposition import DecompositionOutput, SubTaskSpec
-    output = DecompositionOutput(
-        subtasks=[
-            SubTaskSpec(id="a", description="A", task_type="reasoning", depends_on=["b"]),
-            SubTaskSpec(id="b", description="B", task_type="reasoning", depends_on=["a"]),
-        ],
-        reasoning="cyclic test",
-    )
-    errors = output.validate_dag()
-    assert any("cycle" in e.lower() for e in errors), f"Expected cycle error, got: {errors}"
+    try:
+        DecompositionOutput(
+            subtasks=[
+                SubTaskSpec(id="a", description="A", task_type="reasoning", depends_on=["b"]),
+                SubTaskSpec(id="b", description="B", task_type="reasoning", depends_on=["a"]),
+            ],
+            reasoning="cyclic test",
+        )
+        assert False, "Expected ValueError for cyclic DAG but none was raised"
+    except ValueError as exc:
+        assert "cycle" in str(exc).lower(), f"Expected cycle error, got: {exc}"
     return "cycle correctly detected"
 
 

@@ -34,7 +34,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 from uuid import UUID
 
@@ -491,7 +491,7 @@ class Orchestrator:
             await self._log_tool_calls("synthesis", tool_count_before)
 
         # ── Step 4: Finalise ──────────────────────────────────────────────────
-        self.ctx.completed_at = datetime.utcnow()
+        self.ctx.completed_at = datetime.now(timezone.utc)
         total_latency = int((time.perf_counter() - t0) * 1000)
 
         budget_report = self.bm.audit_report()

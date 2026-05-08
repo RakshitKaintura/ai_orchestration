@@ -181,4 +181,4 @@ class TestDecompositionAgent:
         # Should produce a single fallback subtask
         assert len(ctx.subtasks) == 1
         assert ctx.subtasks[0].id == "st-1"
-        assert "Fallback" in output.structured["reasoning"]
+        assert "Fallback" in output.structured_output["reasoning"]

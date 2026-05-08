@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 from api.config import get_settings
 from api.database import get_db_session
@@ -210,18 +211,22 @@ async def get_trace(job_id: str) -> dict[str, Any]:
         async with get_db_session() as session:
             # Fetch job status
             job_row = await session.execute(
-                "SELECT id, query, status, error, created_at, completed_at "
-                "FROM jobs WHERE id = $1",
-                job_id,
+                text(
+                    "SELECT id, query, status, error, created_at, completed_at "
+                    "FROM jobs WHERE id = :job_id"
+                ),
+                {"job_id": job_id},
             )
             job = dict(job_row.fetchone() or {}) if hasattr(job_row, 'fetchone') else None
 
             # Fetch ordered trace events
             events_row = await session.execute(
-                "SELECT seq, agent_id, event_type, input_hash, output_hash, "
-                "payload, latency_ms, token_count, policy_violations, created_at "
-                "FROM trace_events WHERE job_id = $1 ORDER BY seq ASC",
-                job_id,
+                text(
+                    "SELECT seq, agent_id, event_type, input_hash, output_hash, "
+                    "payload, latency_ms, token_count, policy_violations, created_at "
+                    "FROM trace_events WHERE job_id = :job_id ORDER BY seq ASC"
+                ),
+                {"job_id": job_id},
             )
             events = [dict(r) for r in (events_row.fetchall() if hasattr(events_row, 'fetchall') else [])]
     except Exception as e:
@@ -271,9 +276,11 @@ async def get_latest_eval() -> dict[str, Any]:
     try:
         async with get_db_session() as session:
             row = await session.execute(
-                "SELECT id, triggered_by, cases_count, status, summary, "
-                "created_at, completed_at FROM eval_runs "
-                "WHERE status = 'complete' ORDER BY completed_at DESC LIMIT 1"
+                text(
+                    "SELECT id, triggered_by, cases_count, status, summary, "
+                    "created_at, completed_at FROM eval_runs "
+                    "WHERE status = 'complete' ORDER BY completed_at DESC LIMIT 1"
+                )
             )
             run = row.fetchone() if hasattr(row, 'fetchone') else None
 
@@ -291,19 +298,23 @@ async def get_latest_eval() -> dict[str, Any]:
 
             # Fetch per-case results
             cases_row = await session.execute(
-                "SELECT case_id, category, query, final_answer, "
-                "correctness, citations, contradictions, tool_efficiency, "
-                "budget_compliance, critique_agreement, weighted_total "
-                "FROM eval_case_results WHERE run_id = $1 ORDER BY weighted_total ASC",
-                run_id,
+                text(
+                    "SELECT case_id, category, query, final_answer, "
+                    "correctness, citations, contradictions, tool_efficiency, "
+                    "budget_compliance, critique_agreement, weighted_total "
+                    "FROM eval_case_results WHERE run_id = :run_id ORDER BY weighted_total ASC"
+                ),
+                {"run_id": run_id},
             )
             cases = [dict(r) for r in (cases_row.fetchall() if hasattr(cases_row, 'fetchall') else [])]
 
             # Fetch pending rewrites from this run
             rewrites_row = await session.execute(
-                "SELECT id, agent_id, dimension, status, confidence, created_at "
-                "FROM prompt_rewrites WHERE run_id = $1",
-                run_id,
+                text(
+                    "SELECT id, agent_id, dimension, status, confidence, created_at "
+                    "FROM prompt_rewrites WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
             )
             rewrites = [dict(r) for r in (rewrites_row.fetchall() if hasattr(rewrites_row, 'fetchall') else [])]
 
@@ -377,8 +388,10 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
         async with get_db_session() as session:
             # Fetch the rewrite
             row = await session.execute(
-                "SELECT id, run_id, agent_id, dimension, status FROM prompt_rewrites WHERE id = $1",
-                rewrite_id,
+                text(
+                    "SELECT id, run_id, agent_id, dimension, status FROM prompt_rewrites WHERE id = :rewrite_id"
+                ),
+                {"rewrite_id": rewrite_id},
             )
             rw = row.fetchone() if hasattr(row, 'fetchone') else None
 
@@ -406,8 +419,8 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
             # Update status
             new_status = request.decision  # 'approved' or 'rejected'
             await session.execute(
-                "UPDATE prompt_rewrites SET status = $2 WHERE id = $1",
-                rewrite_id, new_status,
+                text("UPDATE prompt_rewrites SET status = :status WHERE id = :rewrite_id"),
+                {"rewrite_id": rewrite_id, "status": new_status},
             )
 
             re_eval_triggered = False
@@ -421,10 +434,12 @@ async def review_rewrite(rewrite_id: str, request: ReviewRequest) -> dict[str, A
                 # Find previously failed cases from the originating eval run
                 run_id = rw_dict.get("run_id")
                 failed_cases_row = await session.execute(
-                    "SELECT case_id FROM eval_case_results "
-                    "WHERE run_id = $1 AND weighted_total < 0.6 "
-                    "ORDER BY weighted_total ASC",
-                    run_id,
+                    text(
+                        "SELECT case_id FROM eval_case_results "
+                        "WHERE run_id = :run_id AND weighted_total < 0.6 "
+                        "ORDER BY weighted_total ASC"
+                    ),
+                    {"run_id": run_id},
                 )
                 failed_cases = [
                     r["case_id"]
@@ -499,8 +514,10 @@ async def trigger_re_eval(request: ReRunRequest) -> dict[str, Any]:
 
             if not rewrite_id:
                 row = await session.execute(
-                    "SELECT id FROM prompt_rewrites WHERE status = 'approved' "
-                    "ORDER BY created_at DESC LIMIT 1"
+                    text(
+                        "SELECT id FROM prompt_rewrites WHERE status = 'approved' "
+                        "ORDER BY created_at DESC LIMIT 1"
+                    )
                 )
                 rw = row.fetchone() if hasattr(row, 'fetchone') else None
                 if not rw:
@@ -515,8 +532,10 @@ async def trigger_re_eval(request: ReRunRequest) -> dict[str, Any]:
 
             # Find the associated run's failed cases
             row = await session.execute(
-                "SELECT run_id FROM prompt_rewrites WHERE id = $1 AND status = 'approved'",
-                rewrite_id,
+                text(
+                    "SELECT run_id FROM prompt_rewrites WHERE id = :rewrite_id AND status = 'approved'"
+                ),
+                {"rewrite_id": rewrite_id},
             )
             rw = row.fetchone() if hasattr(row, 'fetchone') else None
             if not rw:
@@ -529,9 +548,11 @@ async def trigger_re_eval(request: ReRunRequest) -> dict[str, Any]:
                 )
 
             failed_cases_row = await session.execute(
-                "SELECT case_id FROM eval_case_results "
-                "WHERE run_id = $1 AND weighted_total < 0.6",
-                str(rw["run_id"]),
+                text(
+                    "SELECT case_id FROM eval_case_results "
+                    "WHERE run_id = :run_id AND weighted_total < 0.6"
+                ),
+                {"run_id": str(rw["run_id"])},
             )
             failed_cases = [
                 r["case_id"]

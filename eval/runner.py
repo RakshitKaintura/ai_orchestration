@@ -51,7 +51,7 @@ async def _run_case(case_id: str):
     case = get_case(case_id)
     print(f"Running single case: {case_id}")
     ctx, scores = await run_single_case(case, llm_client)
-    print(f"\nFinal answer: {ctx.final_answer[:500]}")
+    print(f"\nFinal answer: {(ctx.final_answer or '')[:500]}")
     print(f"\nScores:")
     for dim, result in scores.items():
         if isinstance(result, dict):

@@ -139,7 +139,7 @@ def fix_format(input_data: dict) -> dict:
     """
     Malformed-input strategy: clean up types and encoding.
     """
-    result = {}
+    result: dict[str, Any] = {}
     for k, v in input_data.items():
         if k.startswith("_"):
             continue

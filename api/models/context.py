@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
@@ -57,7 +57,7 @@ class SubTask(BaseModel):
         default=None,
         description="Which agent the orchestrator assigned to this sub-task",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
 
@@ -91,7 +91,7 @@ class ToolCall(BaseModel):
         description="0 = first attempt, 1 = first retry, 2 = second retry (max)",
     )
     agent_id: str | None = Field(default=None, description="Which agent made this call")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ─── Claim score (produced by Critique Agent) ─────────────────────────────────
@@ -154,7 +154,7 @@ class AgentOutput(BaseModel):
         default=None,
         description="SHA-256[:16] of the agent's output text",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def compute_hashes(self) -> None:
         """Compute and store input/output hashes in place."""
@@ -196,7 +196,7 @@ class RoutingPlan(BaseModel):
     reasoning: str = Field(
         description="The orchestrator's justification for these routing decisions",
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ─── Shared Context (the single pipeline object) ─────────────────────────────
@@ -262,7 +262,7 @@ class SharedContext(BaseModel):
     )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
     # ── Utility methods ───────────────────────────────────────────────────────

@@ -100,7 +100,7 @@ class TestCritiqueAgent:
         # Claim scores written back to the RAG output
         assert len(ctx.agent_outputs["rag"].claim_scores) == 2
         assert ctx.agent_outputs["rag"].claim_scores[0].confidence == 0.92
-        assert output.structured["overall_confidence"] == 0.93
+        assert output.structured_output["overall_confidence"] == 0.93
 
     @pytest.mark.asyncio
     async def test_critique_flags_incorrect_spans(self, ctx, bm):

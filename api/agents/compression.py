@@ -166,7 +166,7 @@ async def compress_context_async(text: str) -> str:
                 # Fallback: keep original prose
                 compressed_parts[segment_idx] = segments[segment_idx][0]
             else:
-                compressed_parts[segment_idx] = result
+                compressed_parts[segment_idx] = str(result)
 
     # Fill in structured parts (they were appended in order)
     struct_idx = 0

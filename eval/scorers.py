@@ -366,7 +366,7 @@ async def score_all(
     """
     import asyncio
 
-    results = {}
+    results: dict[str, Any] = {}
 
     # Run all scorers (correctness needs LLM, others don't)
     scores_raw = await asyncio.gather(
@@ -384,8 +384,8 @@ async def score_all(
             logger.error(f"scorer_{name}_failed", extra={"error": str(raw)})
             results[name] = {"score": 0.5, "justification": f"Scorer error: {raw}"}
         else:
-            score, justification = raw
-            results[name] = {"score": round(score, 4), "justification": justification}
+            score_val, justification = raw  # type: ignore[misc]
+            results[name] = {"score": round(float(score_val), 4), "justification": justification}
 
     # Weighted total
     weighted_total = sum(

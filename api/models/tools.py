@@ -9,7 +9,7 @@ The orchestrator inspects error_type to decide how to handle failures in code
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ class ToolResult(BaseModel):
     # Metadata
     latency_ms: float = Field(default=0.0, description="Tool execution time in milliseconds")
     source: str = Field(default="", description="Name of the tool that produced this result")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # ── Factory helpers ────────────────────────────────────────────────────────
 
