@@ -252,6 +252,35 @@ class BudgetManager:
             },
         )
 
+    async def compress_and_record(self, agent_id: str, text: str) -> str:
+        """
+        Run the compression agent on `text` and update the consumed count.
+        Returns the compressed text. Called by orchestrator when is_near_limit().
+
+        Lossless for structured data, lossy for prose (see agents/compression.py).
+        """
+        from api.agents.compression import compress_context_async  # lazy import to avoid circular
+
+        original_tokens = self.count_tokens(text)
+        compressed = await compress_context_async(text)
+        compressed_tokens = self.count_tokens(compressed)
+        tokens_saved = max(0, original_tokens - compressed_tokens)
+
+        if tokens_saved > 0:
+            self.record_compression(agent_id, tokens_saved)
+
+        logger.info(
+            "compress_and_record",
+            extra={
+                "agent_id": agent_id,
+                "original_tokens": original_tokens,
+                "compressed_tokens": compressed_tokens,
+                "tokens_saved": tokens_saved,
+                "job_id": str(self._ctx.job_id),
+            },
+        )
+        return compressed
+
     # ── Reporting ─────────────────────────────────────────────────────────────
 
     def snapshot(self, agent_id: str) -> dict:
