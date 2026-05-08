@@ -303,9 +303,11 @@ make shell-db
 
 ## AI Collaboration Disclosure
 
-This project was built with AI assistance (Anthropic Claude). All architecture decisions, schema designs, agent prompts, and evaluation criteria were authored and reviewed by the developer. AI was used for:
-- Boilerplate code generation (Pydantic models, Dockerfile scaffolding)
-- Code review and edge case identification
-- Documentation drafting (subsequently edited)
+This project was built with significant AI assistance from **Antigravity (Google Deepmind)**.
 
-All AI-generated code was reviewed, tested, and validated before commit.
+**Human-designed** (not AI): all architectural contracts (SharedContext protocol, failure modes, budget constraints, evaluation dimensions, adversarial guards, safety rules — specifically the never-auto-apply constraint for prompt rewrites).
+
+**AI-generated**: implementations of the specified contracts (agent code, tool code, DB queries, test scaffolding, Docker configuration).
+
+All AI-generated code was reviewed line-by-line and tested before commit. See **[REPORT.md §10](REPORT.md#10-ai-tool-usage--attestation)** for the full file-level attestation table and workflow description.
+
