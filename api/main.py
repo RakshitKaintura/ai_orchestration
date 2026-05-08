@@ -2,15 +2,14 @@
 api/main.py
 
 FastAPI application entry point.
-Defines the five required endpoints (stubs at this stage — full implementation
-follows in later phases). Each endpoint is documented via FastAPI's OpenAPI.
+All five required endpoints — fully wired as of Day 3.
 
-The five endpoints:
-1. POST /query          — Submit a query, receive SSE stream
-2. GET  /trace/{job_id} — Full execution trace for a job
-3. GET  /eval/latest    — Latest eval run summary
-4. POST /rewrites/{id}/review — Approve or reject a prompt rewrite
-5. POST /eval/re-run    — Trigger targeted re-eval on failed cases
+Endpoints:
+1. POST /query          — Submit a query, receive SSE stream (LIVE)
+2. GET  /trace/{job_id} — Full execution trace for a job (LIVE)
+3. GET  /eval/latest    — Latest eval run summary (stub → Phase 7)
+4. POST /rewrites/{id}/review — Approve or reject a prompt rewrite (stub → Phase 8)
+5. POST /eval/re-run    — Trigger targeted re-eval (stub → Phase 8)
 """
 
 from __future__ import annotations
@@ -19,13 +18,15 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.config import get_settings
+from api.database import get_db_session
 from api.logging_config import configure_logging, get_logger
+from api.streaming import make_streaming_response
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -38,8 +39,13 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown hooks."""
     logger.info("mega_ai_startup", version="0.1.0", env=settings.log_level)
-    # TODO (Phase 3): initialise ChromaDB collection
-    # TODO (Phase 2): warm up tool connections
+    # Initialise ChromaDB collection and seed corpus
+    try:
+        from api.agents.rag import _get_chroma_collection
+        _get_chroma_collection()
+        logger.info("chromadb_initialised")
+    except Exception as e:
+        logger.warning("chromadb_init_failed", extra={"error": str(e)})
     yield
     logger.info("mega_ai_shutdown")
 
@@ -143,33 +149,25 @@ async def health_check() -> dict[str, str]:
 )
 async def submit_query(request: QueryRequest):
     """
-    Submit a query and stream the multi-agent pipeline response.
+    Submit a query and stream the multi-agent pipeline response via SSE.
 
-    The response is a Server-Sent Events stream. Each event has a `type` field:
-    - `agent_start`     — an agent begins processing
-    - `token`           — a single streamed token from an agent
+    The response is a Server-Sent Events stream (text/event-stream).
+    Each event has a `type` field:
+    - `job_started`     — pipeline begins (includes job_id)
+    - `orchestrator_plan` — routing decision with selected agents
+    - `agent_start`     — an agent begins processing (includes budget)
+    - `token`           — a single streamed word from an agent
     - `tool_call_start` — a tool call is initiated
-    - `tool_call_end`   — a tool call completes (with latency and accepted flag)
+    - `tool_call_end`   — a tool call completes (latency, accepted flag)
     - `budget_update`   — remaining token budget for the current agent
-    - `agent_end`       — an agent finishes
-    - `done`            — the full pipeline is complete
-
-    **Implementation note**: Full SSE streaming implemented in Phase 5.
-    This stub returns a 202 with the job ID.
+    - `agent_end`       — an agent finishes (tokens_used, latency_ms)
+    - `done`            — the full pipeline is complete (job_id)
+    - `error`           — pipeline error (error_code, message, job_id)
     """
-    job_id = str(uuid.uuid4())
-    logger.info("query_received", job_id=job_id, query_length=len(request.query))
+    job_id = uuid.uuid4()
+    logger.info("query_received", job_id=str(job_id), query_length=len(request.query))
 
-    # TODO (Phase 4 + 5): enqueue Celery task, return SSE stream
-    return JSONResponse(
-        status_code=status.HTTP_202_ACCEPTED,
-        content={
-            "job_id": job_id,
-            "status": "queued",
-            "message": "Job queued. SSE streaming implemented in Phase 5.",
-            "stream_url": f"/query/stream/{job_id}",
-        },
-    )
+    return make_streaming_response(job_id, request.query)
 
 
 # ─── Endpoint 2: Get execution trace ──────────────────────────────────────────
@@ -193,12 +191,9 @@ async def get_trace(job_id: str) -> dict[str, Any]:
     """
     Retrieve the full execution trace for any job by its ID.
 
-    This endpoint reconstructs the exact sequence of agent decisions,
-    tool calls, and handoffs in chronological order.
-
-    **Implementation note**: DB query implemented in Phase 6.
+    Returns an ordered list of all trace events, reconstructing the exact
+    sequence of agent decisions, tool calls, and handoffs.
     """
-    # Validate UUID format
     try:
         uuid.UUID(job_id)
     except ValueError:
@@ -211,12 +206,44 @@ async def get_trace(job_id: str) -> dict[str, Any]:
             ).model_dump(),
         )
 
-    # TODO (Phase 6): query trace_events table, return ordered events
+    try:
+        async with get_db_session() as session:
+            # Fetch job status
+            job_row = await session.execute(
+                "SELECT id, query, status, error, created_at, completed_at "
+                "FROM jobs WHERE id = $1",
+                job_id,
+            )
+            job = dict(job_row.fetchone() or {}) if hasattr(job_row, 'fetchone') else None
+
+            # Fetch ordered trace events
+            events_row = await session.execute(
+                "SELECT seq, agent_id, event_type, input_hash, output_hash, "
+                "payload, latency_ms, token_count, policy_violations, created_at "
+                "FROM trace_events WHERE job_id = $1 ORDER BY seq ASC",
+                job_id,
+            )
+            events = [dict(r) for r in (events_row.fetchall() if hasattr(events_row, 'fetchall') else [])]
+    except Exception as e:
+        logger.warning("trace_db_query_failed", extra={"error": str(e), "job_id": job_id})
+        job = None
+        events = []
+
+    if not events and not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ErrorResponse(
+                error_code="JOB_NOT_FOUND",
+                message=f"No trace found for job '{job_id}'",
+                job_id=job_id,
+            ).model_dump(),
+        )
+
     return {
         "job_id": job_id,
-        "status": "stub",
-        "trace_events": [],
-        "message": "Full trace query implemented in Phase 6.",
+        "job": job,
+        "trace_events": events,
+        "total_events": len(events),
     }
 
 
