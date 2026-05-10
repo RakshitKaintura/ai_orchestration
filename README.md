@@ -11,6 +11,16 @@
 
 ---
 
+## The Interface
+
+![Initial Interface](assets/Initial_Interface.png)
+<p align="center">
+  <img src="assets/Agents_working.png" width="49%" />
+  <img src="assets/Final_Answer_Generated.png" width="49%" />
+</p>
+
+---
+
 ## Quick Start (< 5 minutes)
 
 ```bash
