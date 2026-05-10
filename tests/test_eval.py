@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from eval.cases.test_cases import (
+from eval.cases import (
     ALL_CASES, BASELINE_CASES, AMBIGUOUS_CASES, ADVERSARIAL_CASES,
     get_case, get_cases_by_category, EvalCase,
 )
@@ -102,7 +102,7 @@ class TestCitationsScorer:
     @pytest.mark.asyncio
     async def test_good_citations_scores_well(self, ctx_with_provenance):
         case = get_case("base-001")
-        with patch("eval.scorers._get_chroma_collection", return_value=None):
+        with patch("api.agents.rag.retriever._get_chroma_collection", return_value=None):
             score, justification = await score_citations(case, ctx_with_provenance)
         # Should score based on expected chunk coverage
         assert score >= 0.0
@@ -119,7 +119,8 @@ class TestCitationsScorer:
         )
         ctx = SharedContext(query="test")
         ctx.provenance_map = []  # No citations either
-        score, justification = await score_citations(case, ctx)
+        with patch("api.agents.rag.retriever._get_chroma_collection", return_value=None):
+            score, justification = await score_citations(case, ctx)
         assert score == 1.0
 
 
@@ -152,6 +153,14 @@ class TestContradictionsScorer:
         ctx = SharedContext(query="test")
         ctx.final_answer = "RAG is better for dynamic knowledge."
         ctx.contradictions_resolved = ["Agent A said faster; Agent B said slower → resolved: slower is correct"]
+        from api.models.context import AgentOutput
+        ctx.agent_outputs["synthesis"] = AgentOutput(
+            agent_id="synthesis",
+            output="test",
+            structured={},
+            input_hash="",
+            output_hash=""
+        )
         score, justification = await score_contradictions(case, ctx)
         assert score == 1.0
         assert "resolved" in justification.lower()
@@ -346,15 +355,16 @@ class TestMetaAgent:
             expected_improvement: str = "Better chunk citations"
             confidence: float = 0.75
 
-        with patch("api.agents.meta.instructor") as mock_instr:
+        with patch("api.agents.meta.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(return_value=MockProposal())
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(return_value=MockProposal())
 
-            with patch("api.agents.meta.anthropic.AsyncAnthropic"):
+            with patch("api.agents.meta.agent.genai"):
                 agent = MetaAgent()
                 proposal = await agent.propose_rewrite(summary, [], {"rag": "old prompt"})
 
         assert proposal is not None
         assert proposal.target_dimension == "citations"
         assert proposal.target_agent == "rag"
+

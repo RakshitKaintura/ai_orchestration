@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -37,10 +37,10 @@ class SubTask(BaseModel):
     description: str = Field(
         description="Human-readable description of what this sub-task should do",
     )
-    task_type: Literal["retrieval", "computation", "reasoning", "synthesis", "other"] = Field(
-        default="reasoning",
-        description="Typed category of this sub-task",
-    )
+    task_type: Annotated[
+        Literal["retrieval", "computation", "reasoning", "synthesis", "other"],
+        Field(description="Typed category of this sub-task"),
+    ] = "reasoning"
     depends_on: list[str] = Field(
         default_factory=list,
         description="List of sub-task IDs that must complete before this one starts",

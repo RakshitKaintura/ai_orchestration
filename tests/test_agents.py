@@ -88,12 +88,12 @@ class TestCritiqueAgent:
             has_critical_errors=False,
         )
 
-        with patch("api.agents.critique.instructor") as mock_instr:
+        with patch("api.agents.critique.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(return_value=mock_critique)
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(return_value=mock_critique)
 
-            with patch("api.agents.critique.anthropic.AsyncAnthropic"):
+            with patch("api.agents.critique.agent.genai"):
                 agent = CritiqueAgent(ctx, bm, target_agent_id="rag")
                 output = await agent.run()
 
@@ -122,12 +122,12 @@ class TestCritiqueAgent:
             has_critical_errors=True,
         )
 
-        with patch("api.agents.critique.instructor") as mock_instr:
+        with patch("api.agents.critique.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(return_value=mock_critique)
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(return_value=mock_critique)
 
-            with patch("api.agents.critique.anthropic.AsyncAnthropic"):
+            with patch("api.agents.critique.agent.genai"):
                 agent = CritiqueAgent(ctx, bm, target_agent_id="rag")
                 await agent.run()
 
@@ -140,7 +140,7 @@ class TestCritiqueAgent:
         from api.agents.critique import CritiqueAgent
 
         # No rag output in ctx
-        with patch("api.agents.critique.anthropic.AsyncAnthropic"):
+        with patch("api.agents.critique.agent.genai"):
             agent = CritiqueAgent(ctx, bm, target_agent_id="rag")
             output = await agent.run()
 
@@ -152,12 +152,12 @@ class TestCritiqueAgent:
 
         _mock_rag_output(ctx)
 
-        with patch("api.agents.critique.instructor") as mock_instr:
+        with patch("api.agents.critique.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(side_effect=Exception("API down"))
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(side_effect=Exception("API down"))
 
-            with patch("api.agents.critique.anthropic.AsyncAnthropic"):
+            with patch("api.agents.critique.agent.genai"):
                 agent = CritiqueAgent(ctx, bm, target_agent_id="rag")
                 output = await agent.run()
 
@@ -197,12 +197,12 @@ class TestSynthesisAgent:
             confidence=0.9,
         )
 
-        with patch("api.agents.synthesis.instructor") as mock_instr:
+        with patch("api.agents.synthesis.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(return_value=mock_synthesis)
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(return_value=mock_synthesis)
 
-            with patch("api.agents.synthesis.anthropic.AsyncAnthropic"):
+            with patch("api.agents.synthesis.agent.genai"):
                 agent = SynthesisAgent(ctx, bm)
                 output = await agent.run()
 
@@ -232,12 +232,12 @@ class TestSynthesisAgent:
             confidence=0.88,
         )
 
-        with patch("api.agents.synthesis.instructor") as mock_instr:
+        with patch("api.agents.synthesis.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(return_value=mock_synthesis)
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(return_value=mock_synthesis)
 
-            with patch("api.agents.synthesis.anthropic.AsyncAnthropic"):
+            with patch("api.agents.synthesis.agent.genai"):
                 agent = SynthesisAgent(ctx, bm)
                 await agent.run()
 
@@ -250,12 +250,12 @@ class TestSynthesisAgent:
 
         _mock_rag_output(ctx)
 
-        with patch("api.agents.synthesis.instructor") as mock_instr:
+        with patch("api.agents.synthesis.agent.instructor") as mock_instr:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(side_effect=Exception("LLM down"))
+            mock_instr.from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(side_effect=Exception("LLM down"))
 
-            with patch("api.agents.synthesis.anthropic.AsyncAnthropic"):
+            with patch("api.agents.synthesis.agent.genai"):
                 agent = SynthesisAgent(ctx, bm)
                 output = await agent.run()
 
@@ -303,26 +303,26 @@ class TestOrchestrator:
 
         sse_queue = asyncio.Queue()
 
-        with patch("api.orchestrator.instructor") as mock_instr:
+        with patch("instructor.from_gemini") as mock_from_gemini:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
+            mock_from_gemini.return_value = mc
 
             # Routing plan call
-            async def create_side_effect(*args, **kwargs):
+            def create_side_effect(*args, **kwargs):
                 response_model = kwargs.get("response_model")
-                if response_model.__name__ == "AgentSelection":
+                if response_model and response_model.__name__ == "AgentSelection":
                     return routing
-                if response_model.__name__ == "DecompositionOutput":
+                if response_model and response_model.__name__ == "DecompositionOutput":
                     return decomp_result
-                if response_model.__name__ == "SynthesisResult":
+                if response_model and response_model.__name__ == "SynthesisResult":
                     return synth_result
-                if response_model.__name__ == "CritiqueResult":
+                if response_model and response_model.__name__ == "CritiqueResult":
                     return critique_result
                 return MagicMock()
 
-            mc.messages.create = AsyncMock(side_effect=create_side_effect)
+            mc.chat.completions.create = MagicMock(side_effect=create_side_effect)
 
-            with patch("api.orchestrator.anthropic.AsyncAnthropic"):
+            with patch("api.orchestrator.genai"):
                 orchestrator = Orchestrator(ctx, bm, sse_queue=sse_queue)
                 result_ctx = await orchestrator.run()
 
@@ -359,11 +359,11 @@ class TestOrchestrator:
 
         sse_queue = asyncio.Queue()
 
-        with patch("api.orchestrator.instructor") as mock_instr:
+        with patch("instructor.from_gemini") as mock_from_gemini:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
+            mock_from_gemini.return_value = mc
 
-            async def create_side_effect(*args, **kwargs):
+            def create_side_effect(*args, **kwargs):
                 rm = kwargs.get("response_model")
                 if rm and rm.__name__ == "AgentSelection": return routing
                 if rm and rm.__name__ == "DecompositionOutput": return decomp_result
@@ -371,9 +371,9 @@ class TestOrchestrator:
                 if rm and rm.__name__ == "CritiqueResult": return critique_result
                 return MagicMock()
 
-            mc.messages.create = AsyncMock(side_effect=create_side_effect)
+            mc.chat.completions.create = MagicMock(side_effect=create_side_effect)
 
-            with patch("api.orchestrator.anthropic.AsyncAnthropic"):
+            with patch("api.orchestrator.genai"):
                 orchestrator = Orchestrator(ctx, bm, sse_queue=sse_queue)
                 await orchestrator.run()
 
@@ -415,7 +415,7 @@ class TestOrchestrator:
 
         call_order = []
 
-        async def create_side_effect(*args, **kwargs):
+        def create_side_effect(*args, **kwargs):
             rm = kwargs.get("response_model")
             if rm and rm.__name__ == "AgentSelection": return routing
             if rm and rm.__name__ == "DecompositionOutput":
@@ -427,12 +427,12 @@ class TestOrchestrator:
             if rm and rm.__name__ == "CritiqueResult": return critique_result
             return MagicMock()
 
-        with patch("api.orchestrator.instructor") as mock_instr:
+        with patch("instructor.from_gemini") as mock_from_gemini:
             mc = MagicMock()
-            mock_instr.from_anthropic.return_value = mc
-            mc.messages.create = AsyncMock(side_effect=create_side_effect)
+            mock_from_gemini.return_value = mc
+            mc.chat.completions.create = MagicMock(side_effect=create_side_effect)
 
-            with patch("api.orchestrator.anthropic.AsyncAnthropic"):
+            with patch("api.orchestrator.genai"):
                 orchestrator = Orchestrator(ctx, bm)
                 await orchestrator.run()
 

@@ -128,12 +128,12 @@ class TestDecompositionAgent:
             reasoning="Need retrieval before comparison",
         )
 
-        with patch("api.agents.decomposition.instructor") as mock_instructor:
+        with patch("api.agents.decomposition.agent.instructor") as mock_instructor:
             mock_client = MagicMock()
-            mock_instructor.from_anthropic.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_result)
+            mock_instructor.from_gemini.return_value = mock_client
+            mock_client.chat.completions.create = MagicMock(return_value=mock_result)
 
-            with patch("api.agents.decomposition.anthropic.AsyncAnthropic"):
+            with patch("api.agents.decomposition.agent.genai"):
                 agent = DecompositionAgent(ctx, bm)
                 output = await agent.run()
 
@@ -152,12 +152,12 @@ class TestDecompositionAgent:
             reasoning="Simple",
         )
 
-        with patch("api.agents.decomposition.instructor") as mock_instructor:
+        with patch("api.agents.decomposition.agent.instructor") as mock_instructor:
             mock_client = MagicMock()
-            mock_instructor.from_anthropic.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_result)
+            mock_instructor.from_gemini.return_value = mock_client
+            mock_client.chat.completions.create = MagicMock(return_value=mock_result)
 
-            with patch("api.agents.decomposition.anthropic.AsyncAnthropic"):
+            with patch("api.agents.decomposition.agent.genai"):
                 agent = DecompositionAgent(ctx, bm)
                 output = await agent.run()
 
@@ -169,12 +169,12 @@ class TestDecompositionAgent:
         ctx, bm = ctx_and_bm
         from api.agents.decomposition import DecompositionAgent
 
-        with patch("api.agents.decomposition.instructor") as mock_instructor:
+        with patch("api.agents.decomposition.agent.instructor") as mock_instructor:
             mock_client = MagicMock()
-            mock_instructor.from_anthropic.return_value = mock_client
-            mock_client.messages.create = AsyncMock(side_effect=Exception("API Error"))
+            mock_instructor.from_gemini.return_value = mock_client
+            mock_client.chat.completions.create = MagicMock(side_effect=Exception("API Error"))
 
-            with patch("api.agents.decomposition.anthropic.AsyncAnthropic"):
+            with patch("api.agents.decomposition.agent.genai"):
                 agent = DecompositionAgent(ctx, bm)
                 output = await agent.run()
 

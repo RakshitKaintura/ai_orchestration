@@ -15,6 +15,7 @@ Compression contract:
 
 The compression agent does NOT use the BudgetManager itself (it has its own
 fixed budget declared separately) and does NOT write to SharedContext.
+
 It takes raw text in, returns compressed text out.
 
 This function is also the module-level entry point used by context_manager.py.
@@ -29,7 +30,7 @@ import re
 import time
 from typing import Any
 
-import anthropic
+import google.generativeai as genai
 import instructor
 from pydantic import BaseModel, Field
 
@@ -104,12 +105,13 @@ async def _llm_compress(prose: str, model: str, api_key: str) -> str:
     if len(prose.strip()) < 200:
         return prose  # too short to bother compressing
 
-    raw_client = anthropic.AsyncAnthropic(api_key=api_key)
-    client = instructor.from_anthropic(raw_client)
+    genai.configure(api_key=api_key)
+    client = instructor.from_gemini(
+        client=genai.GenerativeModel(model_name=model),
+        mode=instructor.Mode.GEMINI_JSON,
+    )
 
-    result = await client.messages.create(
-        model=model,
-        max_tokens=COMPRESSION_BUDGET_TOKENS,
+    result = client.chat.completions.create(
         messages=[{
             "role": "user",
             "content": (
@@ -150,7 +152,7 @@ async def compress_context_async(text: str) -> str:
         if is_structured:
             compressed_parts.append(content)  # placeholder, replaced below
         else:
-            prose_tasks.append(_llm_compress(content, settings.primary_model, settings.anthropic_api_key))
+            prose_tasks.append(_llm_compress(content, settings.primary_model, settings.google_api_key or settings.gemini_api_key))
             prose_indices.append(i)
             compressed_parts.append("")  # placeholder
 

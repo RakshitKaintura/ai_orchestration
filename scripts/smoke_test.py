@@ -46,7 +46,7 @@ SKIP = "\033[33m~\033[0m"
 
 @check("eval cases load (15 total)")
 async def check_eval_cases():
-    from eval.cases.test_cases import ALL_CASES, BASELINE_CASES, AMBIGUOUS_CASES, ADVERSARIAL_CASES
+    from eval.cases import ALL_CASES, BASELINE_CASES, AMBIGUOUS_CASES, ADVERSARIAL_CASES
     assert len(ALL_CASES) == 15, f"Expected 15 cases, got {len(ALL_CASES)}"
     assert len(BASELINE_CASES) == 5
     assert len(AMBIGUOUS_CASES) == 5
@@ -195,7 +195,7 @@ async def check_query_sse(api_url: str = "http://localhost:8000"):
 
 @check("forbidden_claims adversarial check works")
 async def check_adversarial_guard():
-    from eval.cases.test_cases import get_case
+    from eval.cases import get_case
     from eval.scorers import score_correctness
     from api.models.context import SharedContext
     from unittest.mock import MagicMock

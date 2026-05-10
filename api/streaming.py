@@ -1,140 +1,84 @@
-"""
-api/streaming.py
-
-Server-Sent Events streaming layer for Mega AI.
-
-Event types emitted over the SSE stream:
-  orchestrator_plan  — routing decision with agent list and reasoning
-  agent_start        — agent begins (includes budget)
-  token              — single streamed word from an agent's output
-  tool_call_start    — a tool call is initiated
-  tool_call_end      — a tool call completes (latency, accepted flag)
-  budget_update      — remaining tokens for current agent
-  agent_end          — agent finished (tokens_used, latency_ms)
-  done               — full pipeline complete (job_id)
-  error              — pipeline error (error_code, message, job_id)
-
-The client can reconstruct the full execution state from these events alone.
-
-Implementation:
-  - FastAPI endpoint returns EventSourceResponse (sse-starlette)
-  - Orchestrator pushes events onto an asyncio.Queue
-  - stream_job() reads from the queue and yields formatted SSE events
-  - Pipeline runs concurrently via asyncio.create_task()
-"""
-
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
-from typing import AsyncIterator
+from datetime import datetime, timezone
+from typing import AsyncGenerator
 from uuid import UUID
 
-from sse_starlette.sse import EventSourceResponse
+from fastapi.responses import StreamingResponse
+from sqlalchemy import text
+
+from api.database import get_db_session
+from api.orchestrator import Orchestrator
+from api.context_manager import BudgetManager
+from api.models.context import SharedContext
 
 logger = logging.getLogger(__name__)
 
-
-# ─── SSE event formatter ──────────────────────────────────────────────────────
-
-def _format_sse_event(data: dict, event: str | None = None) -> dict:
-    """Format a dict as an SSE event dict for sse-starlette."""
-    return {
-        "event": event or data.get("type", "message"),
-        "data": json.dumps(data, default=str),
-    }
-
-
-# ─── Stream generator ─────────────────────────────────────────────────────────
-
-async def stream_pipeline(
-    job_id: UUID,
-    query: str,
-    db_session=None,
-) -> AsyncIterator[dict]:
+async def stream_pipeline(job_id: UUID, query: str) -> AsyncGenerator[str, None]:
     """
-    Async generator that:
-    1. Creates SharedContext + BudgetManager for the job
-    2. Creates an asyncio.Queue for SSE events
-    3. Runs the Orchestrator in a background task
-    4. Yields SSE events as they arrive from the queue
-    5. Terminates when the orchestrator emits 'done' or 'error'
-
-    Yields dicts compatible with sse-starlette EventSourceResponse.
+    Execute the multi-agent pipeline and yield status events as they occur.
+    Yields formatted SSE strings.
     """
-    from api.models.context import SharedContext
-    from api.context_manager import BudgetManager
-    from api.orchestrator import Orchestrator
+    # 1. Initialise job in database
+    try:
+        async with get_db_session() as db:
+            await db.execute(text(
+                "INSERT INTO jobs (id, query, status, created_at, started_at) "
+                "VALUES (:id, :query, 'running', :now, :now)"
+            ), {"id": str(job_id), "query": query, "now": datetime.now(timezone.utc)})
+    except Exception as db_err:
+        logger.warning("job_db_insert_failed", extra={"error": str(db_err), "job_id": str(job_id)})
 
-    sse_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
-
-    # Build context for this job
+    # 2. Setup orchestrator
     ctx = SharedContext(job_id=job_id, query=query)
     bm = BudgetManager(ctx)
+    sse_queue = asyncio.Queue()
+    orchestrator = Orchestrator(ctx, bm, sse_queue=sse_queue)
 
-    # Yield immediate acknowledgment
-    yield _format_sse_event({
-        "type": "job_started",
-        "job_id": str(job_id),
-        "query": query,
-    })
-
-    # Start the orchestrator pipeline as a background task
-    orchestrator = Orchestrator(ctx, bm, db_session=db_session, sse_queue=sse_queue)
+    # 3. Start pipeline in background
     pipeline_task = asyncio.create_task(orchestrator.run())
 
-    # Stream events until 'done' or 'error' arrives
+    def _format_sse_event(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    # Emit initial job_started event
+    yield _format_sse_event({"type": "job_started", "job_id": str(job_id)})
+
     try:
+        # 4. Stream events to the caller
         while True:
-            try:
-                event = await asyncio.wait_for(sse_queue.get(), timeout=120.0)
-            except asyncio.TimeoutError:
-                # Heartbeat to keep connection alive
-                yield _format_sse_event({"type": "heartbeat"})
-                continue
-
-            yield _format_sse_event(event)
-
-            if event.get("type") in ("done", "error"):
+            if pipeline_task.done() and sse_queue.empty():
                 break
 
-    except asyncio.CancelledError:
-        logger.warning("sse_stream_cancelled", extra={"job_id": str(job_id)})
-        pipeline_task.cancel()
-        raise
+            try:
+                event = await asyncio.wait_for(sse_queue.get(), timeout=1.0)
+                yield _format_sse_event(event)
+            except asyncio.TimeoutError:
+                if pipeline_task.done() and sse_queue.empty():
+                    break
+                continue
 
     except Exception as e:
-        logger.error("sse_stream_error", extra={"error": str(e), "job_id": str(job_id)})
-        yield _format_sse_event({
-            "type": "error",
-            "error_code": "PIPELINE_ERROR",
-            "message": str(e),
-            "job_id": str(job_id),
-        })
+        logger.error("sse_relay_error", extra={"error": str(e), "job_id": str(job_id)})
+        pass
 
     finally:
-        # Ensure the pipeline task completes cleanly
-        if not pipeline_task.done():
-            try:
-                await asyncio.wait_for(pipeline_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pipeline_task.cancel()
+        logger.info("sse_relay_finished", extra={"job_id": str(job_id), "task_done": pipeline_task.done()})
 
 
-def make_streaming_response(
-    job_id: UUID,
-    query: str,
-    db_session=None,
-) -> EventSourceResponse:
+def make_streaming_response(job_id: UUID, query: str) -> StreamingResponse:
     """
-    Create an EventSourceResponse for a pipeline job.
-    Used by the POST /query endpoint.
+    Convenience wrapper to return a FastAPI StreamingResponse for the pipeline.
     """
-    return EventSourceResponse(
-        stream_pipeline(job_id, query, db_session),
+    return StreamingResponse(
+        stream_pipeline(job_id, query),
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
             "X-Job-ID": str(job_id),
+            "Access-Control-Expose-Headers": "X-Job-ID"
         },
     )

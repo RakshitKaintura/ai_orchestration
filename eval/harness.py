@@ -28,14 +28,14 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-import anthropic
+import google.generativeai as genai
 import instructor
 
 from api.config import get_settings
 from api.context_manager import BudgetManager
 from api.models.context import SharedContext
 from api.orchestrator import Orchestrator
-from eval.cases.test_cases import EvalCase, ALL_CASES, get_cases_by_category
+from eval.cases import EvalCase, ALL_CASES, get_cases_by_category
 from eval.scorers import score_all, SCORER_NAMES
 
 logger = logging.getLogger(__name__)
@@ -234,8 +234,11 @@ async def run_eval(
         await _insert_eval_run(db_conn, run_id, triggered_by, len(cases))
 
     # Build the LLM client for scoring
-    raw_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    llm_client = instructor.from_anthropic(raw_client)
+    genai.configure(api_key=settings.google_api_key or settings.gemini_api_key)
+    llm_client = instructor.from_gemini(
+        client=genai.GenerativeModel(model_name=settings.judge_model),
+        mode=instructor.Mode.GEMINI_JSON,
+    )
 
     # Run cases sequentially
     all_scores = []

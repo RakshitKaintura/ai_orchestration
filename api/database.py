@@ -24,11 +24,7 @@ def _make_engine():
     settings = get_settings()
     return create_async_engine(
         settings.database_url,
-        echo=False,            # set True for SQL query logging in dev
-        pool_pre_ping=True,    # verify connections before use
-        pool_size=10,
-        max_overflow=20,
-        # NullPool can be used in Celery workers to avoid shared connections
+        echo=False,
     )
 
 

@@ -22,7 +22,7 @@ import sys
 
 async def _run_all():
     from eval.harness import run_eval
-    from eval.cases.test_cases import ALL_CASES
+    from eval.cases import ALL_CASES
     print(f"Running full eval harness ({len(ALL_CASES)} cases)...")
     summary = await run_eval()
     print(json.dumps(summary, indent=2, default=str))
@@ -31,7 +31,7 @@ async def _run_all():
 
 async def _run_category(category: str):
     from eval.harness import run_eval
-    from eval.cases.test_cases import get_cases_by_category
+    from eval.cases import get_cases_by_category
     cases = get_cases_by_category(category)
     print(f"Running {category} eval ({len(cases)} cases)...")
     summary = await run_eval(cases=cases)
@@ -41,13 +41,16 @@ async def _run_category(category: str):
 
 async def _run_case(case_id: str):
     from eval.harness import run_single_case
-    from eval.cases.test_cases import get_case
-    import anthropic
+    from eval.cases import get_case
+    import google.generativeai as genai
     import instructor
     from api.config import get_settings
     settings = get_settings()
-    raw_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    llm_client = instructor.from_anthropic(raw_client)
+    genai.configure(api_key=settings.google_api_key or settings.gemini_api_key)
+    llm_client = instructor.from_gemini(
+        client=genai.GenerativeModel(model_name=settings.primary_model),
+        mode=instructor.Mode.GEMINI_JSON,
+    )
     case = get_case(case_id)
     print(f"Running single case: {case_id}")
     ctx, scores = await run_single_case(case, llm_client)

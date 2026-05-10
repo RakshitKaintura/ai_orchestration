@@ -1,62 +1,20 @@
 version: "3.9"
 
 services:
-  # ─── PostgreSQL 15 ────────────────────────────────────────────────────────
-  db:
-    image: postgres:15-alpine
-    container_name: mega_ai_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
-      - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ─── Redis (Celery broker) ────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: mega_ai_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ─── FastAPI Application Server ───────────────────────────────────────────
   api:
     build:
-      context: ./api
+      context: .
       dockerfile: Dockerfile
     container_name: mega_ai_api
     restart: unless-stopped
     env_file: .env
-    environment:
-      POSTGRES_HOST: db
-      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     volumes:
-      - ./api:/app
+      - .:/app
       - chroma_data:/app/chroma_data
       - ./logs:/app/logs
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -64,7 +22,7 @@ services:
       retries: 3
       start_period: 20s
     command: >
-      uvicorn main:app
+      uvicorn api.main:app
       --host ${API_HOST:-0.0.0.0}
       --port ${API_PORT:-8000}
       --reload
@@ -73,27 +31,17 @@ services:
   # ─── Celery Worker (background job processor) ─────────────────────────────
   worker:
     build:
-      context: ./api
+      context: .
       dockerfile: Dockerfile
     container_name: mega_ai_worker
     restart: unless-stopped
     env_file: .env
-    environment:
-      POSTGRES_HOST: db
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
-      - ./api:/app
+      - .:/app
       - chroma_data:/app/chroma_data
       - ./logs:/app/logs
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     command: >
-      celery -A worker.tasks worker
+      celery -A worker.app worker
       --loglevel=${LOG_LEVEL:-info}
       --concurrency=2
       --queues=jobs,eval
@@ -106,18 +54,12 @@ services:
     container_name: mega_ai_log_ui
     restart: unless-stopped
     env_file: .env
-    environment:
-      POSTGRES_HOST: db
     ports:
       - "8080:8080"
     volumes:
       - ./logs:/app
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
-  postgres_data:
   chroma_data:
 
 networks:

@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     )
 
     # ── LLM Providers ────────────────────────────────────────────────────────
-    anthropic_api_key: str = Field(description="Anthropic API key for Claude")
-    openai_api_key: str = Field(description="OpenAI API key for embeddings")
+    google_api_key: str = Field(description="Google API key for Gemini models")
+    gemini_api_key: str = Field(description="Gemini API key (alias for Google API key)")
 
     # ── Database ──────────────────────────────────────────────────────────────
     postgres_host: str = Field(default="db")
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -70,10 +70,10 @@ class Settings(BaseSettings):
     # ── Eval ─────────────────────────────────────────────────────────────────
     auto_eval: bool = Field(default=False)
 
-    # ── LLM Model names ───────────────────────────────────────────────────────
-    primary_model: str = Field(default="claude-3-5-sonnet-20241022")
-    embedding_model: str = Field(default="text-embedding-3-small")
-    judge_model: str = Field(default="claude-3-5-sonnet-20241022")
+    # ─── LLM Model names ───────────────────────────────────────────────────────
+    primary_model: str = Field(default="gemini-3.1-flash-lite")
+    embedding_model: str = Field(default="models/gemini-embedding-2")
+    judge_model: str = Field(default="gemini-3.1-flash-lite")
 
 
 @lru_cache
