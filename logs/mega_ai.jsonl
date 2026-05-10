@@ -872,3 +872,21 @@
 {"event": "budget_declared"}
 {"event": "budget_declared"}
 {"event": "mega_ai_shutdown", "level": "info", "logger": "api.app", "timestamp": "2026-05-10T20:49:16.718150Z"}
+{"version": "0.1.0", "env": "info", "event": "mega_ai_startup", "level": "info", "logger": "api.app", "timestamp": "2026-05-10T20:49:19.364005Z"}
+{"event": "Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information."}
+{"event": "Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given"}
+{"event": "Collection mega_ai_corpus is not created."}
+{"event": "Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given"}
+{"event": "chromadb_initialised", "level": "info", "logger": "api.app", "timestamp": "2026-05-10T20:49:19.910364Z"}
+{"job_id": "ea6cb28a-c2ba-4db5-ba98-b9680eb8355f", "query_length": 37, "event": "query_received", "level": "info", "logger": "api.routes.query", "timestamp": "2026-05-10T21:14:21.204237Z"}
+{"event": "sse_relay_finished"}
+{"event": "budget_declared"}
+{"event": "budget_declared"}
+{"event": "budget_declared"}
+{"event": "Failed to send telemetry event CollectionQueryEvent: capture() takes 1 positional argument but 3 were given"}
+{"event": "rag_hop1_complete"}
+{"event": "rag_followup_query"}
+{"event": "rag_hop2_complete"}
+{"event": "budget_declared"}
+{"event": "budget_declared"}
+{"event": "mega_ai_shutdown", "level": "info", "logger": "api.app", "timestamp": "2026-05-10T21:19:06.687784Z"}
