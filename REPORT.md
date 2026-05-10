@@ -1,8 +1,8 @@
 # Mega AI — LLM Engineer Take-Home: Technical Report
 
-> **Author**: [Candidate]
-> **Repository**: [GitHub URL — pushed Day 5]
-> **Submission date**: 2026-05-08
+> **Author**: Rakshit Kaintura
+> **Repository**: https://github.com/RakshitKaintura/ai_orchestration
+> **Submission date**: 2026-05-11
 > **Assessment level**: Junior LLM Engineer
 
 ---
