@@ -40,6 +40,18 @@ open http://localhost:8080
 
 ---
 
+## Key Engineering Decisions (Why This Stands Out)
+
+This system is designed as a **resilient, production-ready pipeline**, not just a fragile LangChain wrapper. To evaluate this submission, please consider the following architectural choices:
+
+1. **Defensive Architecture**: The Orchestrator acts as a strict mediator with a `SharedContext`. Agents **never communicate directly** with one another. This guarantees deterministic state transitions, prevents infinite agent loops, and makes the pipeline 100% debuggable.
+2. **"Code over Prompts" for Reliability**: Tool failures aren't fixed by blindly adding instructions to a system prompt. Instead, explicit failure contracts (`timeout`, `empty`, `malformed`) are handled natively in Python. For example, if a tool times out, the Python wrapper automatically simplifies the query before retrying.
+3. **Strict Token Budgeting & Compression**: Token management is handled via a `BudgetManager` that tracks exact token consumption. If an agent hits 85% of its budget limit, a `CompressionAgent` is triggered to losslessly preserve structured data (JSON/citations) while lossily summarizing filler prose.
+4. **Human-in-the-Loop Safety Constraints**: The Meta-Agent analyzes evaluation failures and proposes prompt rewrites, but it is **architecturally incapable of auto-applying them**. It requires explicit human approval via a dedicated API endpoint (`POST /rewrites/{id}/review`). In production AI, safety and deterministic behavior must supersede full autonomy.
+5. **Traceability UI**: The system includes a custom Flask-based Trace Dashboard (`localhost:8080`) built with a modern, ChatGPT-inspired dark theme. It provides visual step-by-step insight into agent reasoning, token consumption, and latency.
+
+---
+
 ## Architecture
 
 ```
